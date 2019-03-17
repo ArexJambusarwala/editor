@@ -7,12 +7,14 @@ import {
   LOG_ERROR,
   PARSE_SPEC,
   SET_BASEURL,
+  SET_COMPILED_VEGA_PANE_SIZE,
   SET_DEBUG_PANE_SIZE,
   SET_GIST_VEGA_LITE_SPEC,
   SET_GIST_VEGA_SPEC,
   SET_MODE,
   SET_MODE_ONLY,
   SET_RENDERER,
+  SET_SCROLL_POSITION,
   SET_VEGA_EXAMPLE,
   SET_VEGA_LITE_EXAMPLE,
   SET_VIEW,
@@ -20,10 +22,11 @@ import {
   SetGistVegaSpec,
   SetVegaExample,
   SetVegaLiteExample,
-  SHOW_COMPILED_VEGA_SPEC,
   SHOW_LOGS,
   TOGGLE_AUTO_PARSE,
+  TOGGLE_COMPILED_VEGA_SPEC,
   TOGGLE_DEBUG_PANE,
+  TOGGLE_NAV_BAR,
   UPDATE_EDITOR_STRING,
   UPDATE_VEGA_LITE_SPEC,
   UPDATE_VEGA_SPEC,
@@ -34,6 +37,29 @@ import { DEFAULT_STATE, Mode } from '../constants';
 import { State } from '../constants/default-state';
 import { LocalLogger } from '../utils/logger';
 import { validateVega, validateVegaLite } from '../utils/validate';
+
+function errorLine(code: string, error: string) {
+  const pattern = /(position\s)(\d+)/;
+  let charPos: any = error.match(pattern);
+
+  if (charPos !== null) {
+    charPos = charPos[2];
+    if (!isNaN(charPos)) {
+      let line = 1;
+      let cursorPos = 0;
+
+      while (cursorPos < charPos && code.indexOf('\n', cursorPos) < charPos && code.indexOf('\n', cursorPos) > -1) {
+        const newlinePos = code.indexOf('\n', cursorPos);
+        line = line + 1;
+        cursorPos = newlinePos + 1;
+      }
+
+      return `${error} and line ${line}`;
+    }
+  } else {
+    return error;
+  }
+}
 
 function parseVega(state: State, action: SetVegaExample | UpdateVegaSpec | SetGistVegaSpec, extend = {}) {
   const currLogger = new LocalLogger();
@@ -48,13 +74,15 @@ function parseVega(state: State, action: SetVegaExample | UpdateVegaSpec | SetGi
       vegaSpec: spec,
     };
   } catch (e) {
+    const errorMessage = errorLine(action.spec, e.message);
     console.warn(e);
 
     extend = {
       ...extend,
-      error: e.message,
+      error: errorMessage,
     };
   }
+  const logger = { ...currLogger };
   return {
     ...state,
 
@@ -63,6 +91,7 @@ function parseVega(state: State, action: SetVegaExample | UpdateVegaSpec | SetGi
     gist: null,
     mode: Mode.Vega,
     selectedExample: null,
+    warningsCount: (logger as any).warns.length,
     warningsLogger: currLogger,
 
     // extend with other changes
@@ -90,13 +119,15 @@ function parseVegaLite(
       vegaSpec,
     };
   } catch (e) {
+    const errorMessage = errorLine(action.spec, e.message);
     console.warn(e);
 
     extend = {
       ...extend,
-      error: e.message,
+      error: errorMessage,
     };
   }
+  const logger = { ...currLogger };
   return {
     ...state,
 
@@ -105,6 +136,7 @@ function parseVegaLite(
     gist: null,
     mode: Mode.VegaLite,
     selectedExample: null,
+    warningsCount: (logger as any).warns.length,
     warningsLogger: currLogger,
 
     // extend with other changes
@@ -129,12 +161,18 @@ export default (state: State = DEFAULT_STATE, action: Action): State => {
         vegaLiteSpec: {},
         vegaSpec: {},
         view: null,
+        warningsCount: 0,
         warningsLogger: new LocalLogger(),
       };
     case SET_MODE_ONLY:
       return {
         ...state,
         mode: action.mode,
+      };
+    case SET_SCROLL_POSITION:
+      return {
+        ...state,
+        lastPosition: action.position,
       };
     case PARSE_SPEC:
       return {
@@ -173,7 +211,7 @@ export default (state: State = DEFAULT_STATE, action: Action): State => {
         manualParse: !state.manualParse,
         parse: state.manualParse,
       };
-    case SHOW_COMPILED_VEGA_SPEC:
+    case TOGGLE_COMPILED_VEGA_SPEC:
       return {
         ...state,
         compiledVegaSpec: !state.compiledVegaSpec,
@@ -227,6 +265,16 @@ export default (state: State = DEFAULT_STATE, action: Action): State => {
       return {
         ...state,
         logs: action.logs,
+      };
+    case SET_COMPILED_VEGA_PANE_SIZE:
+      return {
+        ...state,
+        compiledVegaPaneSize: action.compiledVegaPaneSize,
+      };
+    case TOGGLE_NAV_BAR:
+      return {
+        ...state,
+        navItem: action.navItem,
       };
     default:
       return state;

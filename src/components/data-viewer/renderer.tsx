@@ -11,6 +11,7 @@ import Table from '../table';
 
 interface Props {
   view?: View;
+  debugPane: boolean;
 }
 
 const initialState = {
@@ -66,6 +67,12 @@ export default class DataViewer extends React.Component<Props, State> {
 
     const data = this.props.view.data(selected) || [];
 
+    if (this.props.debugPane) {
+      this.props.view.addDataListener(selected, () => {
+        this.forceUpdate();
+      });
+    }
+
     const pageCount = Math.ceil(data.length / ROWS_PER_PAGE);
 
     if (pageCount > 1) {
@@ -92,7 +99,7 @@ export default class DataViewer extends React.Component<Props, State> {
     const table = data.length ? (
       <Table header={Object.keys(data[0])} data={visibleData} />
     ) : (
-      <span className="error">The table appears empty. Try to refresh if you think there is data.</span>
+      <span className="error">The table is empty.</span>
     );
 
     return (
@@ -109,9 +116,6 @@ export default class DataViewer extends React.Component<Props, State> {
             clearable={false}
             searchable={false}
           />
-          <button className="data-refresh" onClick={this.handleReload}>
-            <RefreshCw /> <span>Refresh</span>
-          </button>
           <div className="pagination-wrapper">{pagination}</div>
         </div>
         <ErrorBoundary>{table}</ErrorBoundary>
