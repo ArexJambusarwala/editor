@@ -1,8 +1,7 @@
-import './index.css';
-
 import LZString from 'lz-string';
 import * as React from 'react';
 import Clipboard from 'react-clipboard.js';
+import ReactDOM from 'react-dom';
 import {
   Book,
   Code,
@@ -11,6 +10,7 @@ import {
   FileText,
   GitHub,
   Grid,
+  HelpCircle,
   Image,
   Link,
   Map,
@@ -25,10 +25,13 @@ import Select from 'react-select';
 import { Mode, View } from '../../constants';
 import { NAMES } from '../../constants/consts';
 import { VEGA_LITE_SPECS, VEGA_SPECS } from '../../constants/specs';
+import HelpModal from '../help-modal/index';
+import './index.css';
 
 interface Props {
   editorString?: string;
   history: any;
+  lastPosition: number;
   manualParse?: boolean;
   mode: Mode;
   view: View;
@@ -39,6 +42,7 @@ interface Props {
   formatSpec: (val: any) => void;
   parseSpec: (val: any) => void;
   toggleAutoParse: () => void;
+  setScrollPosition: (position: number) => void;
 }
 
 interface State {
@@ -52,11 +56,13 @@ interface State {
     type: Mode;
     url: string;
   };
+  gistLoadClicked: boolean;
+  helpModalOpen: boolean;
   invalidFilename: boolean;
   invalidRevision: boolean;
   invalidUrl: boolean;
   showVega: boolean;
-  helpModalOpen: boolean;
+  scrollPosition: number;
 }
 
 const formatExampleName = (name: string) => {
@@ -68,7 +74,7 @@ const formatExampleName = (name: string) => {
 
 class Header extends React.Component<Props, State> {
   private refGistForm: HTMLFormElement;
-
+  private examplePortal = React.createRef<HTMLDivElement>();
   constructor(props) {
     super(props);
     this.state = {
@@ -82,10 +88,12 @@ class Header extends React.Component<Props, State> {
         type: props.mode,
         url: '',
       },
+      gistLoadClicked: false,
+      helpModalOpen: false,
       invalidFilename: false,
       invalidRevision: false,
-      helpModalOpen: false,
       invalidUrl: false,
+      scrollPosition: 0,
       showVega: props.mode === Mode.Vega,
     };
   }
@@ -105,14 +113,23 @@ class Header extends React.Component<Props, State> {
 
   public updateGistUrl(event) {
     this.updateGist({ url: event.currentTarget.value });
+    this.setState({
+      invalidUrl: false,
+    });
   }
 
   public updateGistRevision(event) {
     this.updateGist({ revision: event.currentTarget.value });
+    this.setState({
+      invalidRevision: false,
+    });
   }
 
   public updateGistFile(event) {
     this.updateGist({ filename: event.currentTarget.value });
+    this.setState({
+      invalidFilename: false,
+    });
   }
 
   public onSelectVega(name) {
@@ -144,7 +161,9 @@ class Header extends React.Component<Props, State> {
   }
 
   public handleCheck(event) {
-    this.setState({ fullscreen: event.target.checked });
+    this.setState({ fullscreen: event.target.checked }, () => {
+      this.exportURL();
+    });
   }
 
   public handleHelpModalOpen(event) {
@@ -184,11 +203,15 @@ class Header extends React.Component<Props, State> {
 
       return;
     }
+    this.setState({
+      gistLoadClicked: true,
+    });
 
     const gistUrl = new URL(url, 'https://gist.github.com');
     const [username, gistId] = gistUrl.pathname.split('/').slice(1);
     const gistCommits = await fetch(`https://api.github.com/gists/${gistId}/commits`);
     this.setState({
+      gistLoadClicked: gistCommits.ok,
       invalidUrl: !gistCommits.ok,
     });
     const responseGistCommits = await gistCommits.json();
@@ -202,6 +225,7 @@ class Header extends React.Component<Props, State> {
     } else {
       const revGistCommits = await fetch(`https://api.github.com/gists/${gistId}/${revision}`);
       this.setState({
+        gistLoadClicked: revGistCommits.ok || this.state.invalidUrl,
         invalidFilename: !this.state.invalidUrl,
         invalidRevision: !(revGistCommits.ok || this.state.invalidUrl),
       });
@@ -213,6 +237,7 @@ class Header extends React.Component<Props, State> {
 
       if (filename === undefined) {
         this.setState({
+          gistLoadClicked: false,
           invalidUrl: true,
         });
         throw Error();
@@ -224,6 +249,7 @@ class Header extends React.Component<Props, State> {
       const gistFilename = Object.keys(gistData.files).find(f => gistData.files[f].language === 'JSON');
       if (this.state.gist.filename !== gistFilename && !this.state.invalidUrl) {
         this.setState({
+          gistLoadClicked: false,
           invalidFilename: true,
         });
       } else {
@@ -241,7 +267,7 @@ class Header extends React.Component<Props, State> {
           type: Mode.Vega,
           url: '',
         },
-
+        gistLoadClicked: true,
         invalidFilename: false,
         invalidRevision: false,
         invalidUrl: false,
@@ -344,6 +370,17 @@ class Header extends React.Component<Props, State> {
   public componentDidMount() {
     document.addEventListener('keydown', this.handleHelpModalOpen.bind(this));
     document.addEventListener('keyup', this.handleHelpModalCloseEsc.bind(this));
+    document.addEventListener('keydown', e => {
+      // keycode for F key is 70
+      if (e.altKey && e.shiftKey && e.keyCode === 70) {
+        this.props.formatSpec(true);
+        const formatButton = document.querySelector('.format-button');
+        formatButton.classList.add('dark-background');
+        setTimeout(() => {
+          formatButton.classList.remove('dark-background');
+        }, 200);
+      }
+    });
   }
 
   public componentDidUpdate(prevProps, prevState) {
@@ -351,9 +388,6 @@ class Header extends React.Component<Props, State> {
       setTimeout(() => {
         this.setState({ copied: false });
       }, 2500);
-    }
-    if (prevState.fullscreen !== this.state.fullscreen) {
-      this.exportURL();
     }
   }
 
@@ -415,6 +449,11 @@ class Header extends React.Component<Props, State> {
       </div>
     );
 
+    const HelpButton = (
+      <div className="header-button" onClick={() => this.setState(current => ({ ...current, helpModalOpen: true }))}>
+        <HelpCircle className="header-icon" />
+      </div>
+    );
     const docsLink = (
       <a
         className="docs-link"
@@ -435,7 +474,7 @@ class Header extends React.Component<Props, State> {
     );
 
     const formatButton = (
-      <div className="header-button" onClick={() => this.props.formatSpec(true)}>
+      <div className="header-button format-button" onClick={() => this.props.formatSpec(true)}>
         <Code className="header-icon" />
         {'Format'}
       </div>
@@ -563,7 +602,7 @@ class Header extends React.Component<Props, State> {
           <div className="gist-input-container">
             <label>
               Gist URL
-              <div>
+              <div style={{ marginTop: '2px' }}>
                 <small>
                   Example:{' '}
                   <span className="gist-url">
@@ -615,7 +654,7 @@ class Header extends React.Component<Props, State> {
             </div>
           </div>
           <button type="button" className="gist-button" onClick={() => this.onSelectGist(closePortal)}>
-            Load
+            {this.state.gistLoadClicked ? 'Loading..' : 'Load'}
           </button>
         </form>
       </div>
@@ -754,20 +793,7 @@ class Header extends React.Component<Props, State> {
       </div>
     );
 
-    const helpModal = (
-      <div>
-        <h2>Help</h2>
-        <h4>Keyboard Shortcuts</h4>
-        <ul className="keyboard-shortcuts">
-          <li>
-            <kbd>Ctrl</kbd> + <kbd>b</kbd> / <kbd>&#8984;</kbd> + <kbd>b</kbd>: Execute the code in manual mode
-          </li>
-          <li>
-            <kbd>Ctrl</kbd> + <kbd>?</kbd> / <kbd>&#8984;</kbd> + <kbd>'</kbd>: Open the help window
-          </li>
-        </ul>
-      </div>
-    );
+    const helpModal = <HelpModal />;
 
     return (
       <div className="header">
@@ -821,9 +847,25 @@ class Header extends React.Component<Props, State> {
               ),
             ]}
           </PortalWithState>
+          {HelpButton}
         </section>
         <section className="right-section">
-          <PortalWithState closeOnEsc defaultOpen={this.props.showExample}>
+          <PortalWithState
+            closeOnEsc
+            defaultOpen={this.props.showExample}
+            onOpen={() => {
+              const node = ReactDOM.findDOMNode(this.examplePortal.current);
+              node.scrollTop = this.props.lastPosition;
+              node.addEventListener('scroll', () => {
+                this.setState({
+                  scrollPosition: node.scrollTop,
+                });
+              });
+            }}
+            onClose={() => {
+              this.props.setScrollPosition(this.state.scrollPosition);
+            }}
+          >
             {({ openPortal, closePortal, isOpen, portal }) => [
               <span key="0" onClick={openPortal}>
                 {examplesButton}
@@ -835,13 +877,21 @@ class Header extends React.Component<Props, State> {
                       <div className="button-groups">
                         <button
                           className={this.state.showVega ? 'selected' : ''}
-                          onClick={() => this.setState({ showVega: true })}
+                          onClick={() => {
+                            this.setState({ showVega: true });
+                            const node = ReactDOM.findDOMNode(this.examplePortal.current);
+                            node.scrollTop = 0;
+                          }}
                         >
                           Vega
                         </button>
                         <button
                           className={this.state.showVega ? '' : 'selected'}
-                          onClick={() => this.setState({ showVega: false })}
+                          onClick={() => {
+                            this.setState({ showVega: false });
+                            const node = ReactDOM.findDOMNode(this.examplePortal.current);
+                            node.scrollTop = 0;
+                          }}
                         >
                           Vega-Lite
                         </button>
@@ -850,7 +900,9 @@ class Header extends React.Component<Props, State> {
                         <X />
                       </button>
                     </div>
-                    <div className="modal-body">{this.state.showVega ? vega(closePortal) : vegalite(closePortal)}</div>
+                    <div className="modal-body" ref={this.examplePortal}>
+                      {this.state.showVega ? vega(closePortal) : vegalite(closePortal)}
+                    </div>
                     <div className="modal-footer" />
                   </div>
                 </div>
@@ -858,7 +910,14 @@ class Header extends React.Component<Props, State> {
             ]}
           </PortalWithState>
 
-          <PortalWithState closeOnEsc>
+          <PortalWithState
+            closeOnEsc
+            onClose={() => {
+              this.setState({
+                gistLoadClicked: false,
+              });
+            }}
+          >
             {({ openPortal, closePortal, isOpen, portal }) => [
               <span key="0" onClick={openPortal}>
                 {gistButton}
